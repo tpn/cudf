@@ -19,6 +19,7 @@ files:
     includes:
       - cudatoolkit
       - libidentify_stream_usage_build
+      - test_cpp
   test_python:
     output: none
     includes:
@@ -247,6 +248,12 @@ dependencies:
               arch: aarch64
             packages:
               - cupy-cuda11x -f https://pip.cupy.dev/aarch64 # TODO: Verify that this works.
+  test_cpp:
+    build:
+    common:
+      - output_types: [conda, requirements]
+        packages:
+          - *cmake_ver
   test_java:
     common:
       - output_types: conda

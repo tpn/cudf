@@ -13,7 +13,12 @@
 # =============================================================================
 
 # ##################################################################################################
-# * compiler function -----------------------------------------------------------------------------
+# enable testing ################################################################################
+# ##################################################################################################
+enable_testing()
+
+include(rapids-test)
+rapids_test_init()
 
 # This function takes in a test name and test source and handles setting all of the associated
 # properties and linking to build the test
@@ -35,12 +40,9 @@ function(ConfigureTest CMAKE_TEST_NAME)
     ${CMAKE_TEST_NAME} PRIVATE cudftestutil GTest::gmock_main GTest::gtest_main
                                $<TARGET_NAME_IF_EXISTS:conda_env>
   )
-  add_test(NAME ${CMAKE_TEST_NAME} COMMAND ${CMAKE_TEST_NAME})
-  install(
-    TARGETS ${CMAKE_TEST_NAME}
-    COMPONENT testing
-    DESTINATION bin/gtests/libcudf
-    EXCLUDE_FROM_ALL
+  rapids_test_add(
+    NAME ${CMAKE_TEST_NAME} COMMAND ${CMAKE_TEST_NAME} GPUS 1 PERCENT 25 INSTALL_COMPONENT_SET
+    testing
   )
 endfunction()
 
@@ -237,6 +239,11 @@ ConfigureTest(TYPE_INFERENCE_TEST io/type_inference_test.cu)
 if(CUDF_ENABLE_ARROW_S3)
   target_compile_definitions(ARROW_IO_SOURCE_TEST PRIVATE "S3_ENABLED")
 endif()
+
+# Add the `kvikio` label to tests that we want to be able to run with different
+# LIBCUDF_CUFILE_POLICY values
+#
+set_tests_properties(CSV_TEST ORC_TEST PARQUET_TEST PROPERTIES LABELS kvikio)
 
 # ##################################################################################################
 # * sort tests ------------------------------------------------------------------------------------
@@ -507,8 +514,6 @@ ConfigureTest(
 # * bin tests ----------------------------------------------------------------------------------
 ConfigureTest(LABEL_BINS_TEST labeling/label_bins_tests.cpp)
 
-# ##################################################################################################
-# enable testing ################################################################################
-# ##################################################################################################
-
-enable_testing()
+rapids_test_install_relocatable(
+  INSTALL_COMPONENT_SET testing DESTINATION bin/gtests/libcudf EXCLUDE_FROM_ALL
+)

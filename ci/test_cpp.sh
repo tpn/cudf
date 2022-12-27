@@ -45,42 +45,47 @@ set +e
 # Run libcudf and libcudf_kafka gtests from libcudf-tests package
 rapids-logger "Run gtests"
 
-# TODO: exit code handling is too verbose. Find a cleaner solution.
+cd $CONDA_PREFIX/bin/gtests/libcudf/
+GTEST_OUTPUT=xml:${RAPIDS_TESTS_DIR}/ ctest -j20
+SUITEERROR=$?
 
-for gt in "$CONDA_PREFIX"/bin/gtests/{libcudf,libcudf_kafka}/* ; do
-    test_name=$(basename ${gt})
-    echo "Running gtest $test_name"
-    ${gt} --gtest_output=xml:${RAPIDS_TESTS_DIR}
-    # TODO: Disabling stream identification for now.
-    #if [[ ${test_name} == "SPAN_TEST" ]]; then
-    #    # This one test is specifically designed to test using a thrust device
-    #    # vector, so we expect and allow it to include default stream usage.
-    #    gtest_filter="SpanTest.CanConstructFromDeviceContainers"
-    #    GTEST_CUDF_STREAM_MODE="custom" LD_PRELOAD=${STREAM_IDENTIFY_LIB} ${gt} --gtest_output=xml:${RAPIDS_TESTS_DIR} --gtest_filter="-${gtest_filter}" && \
-    #        ${gt} --gtest_output=xml:${RAPIDS_TESTS_DIR} --gtest_filter="${gtest_filter}"
-    #else
-    #    GTEST_CUDF_STREAM_MODE="custom" LD_PRELOAD=${STREAM_IDENTIFY_LIB} ${gt} --gtest_output=xml:${RAPIDS_TESTS_DIR}
-    #fi
+if (( ${SUITEERROR} == 0 )); then
+    cd $CONDA_PREFIX/bin/gtests/libcudf_kafka/
+    GTEST_OUTPUT=xml:${RAPIDS_TESTS_DIR}/ ctest -j20
+    SUITEERROR=$?
+fi
 
-    exitcode=$?
-    if (( ${exitcode} != 0 )); then
-        SUITEERROR=${exitcode}
-        echo "FAILED: GTest ${gt}"
-    fi
-done
+# # TODO: exit code handling is too verbose. Find a cleaner solution.
+# for gt in "$CONDA_PREFIX"/bin/gtests/{libcudf,libcudf_kafka}/* ; do
+#     test_name=$(basename ${gt})
+#     echo "Running gtest $test_name"
+#     ${gt} --gtest_output=xml:${RAPIDS_TESTS_DIR}
+#     # TODO: Disabling stream identification for now.
+#     #if [[ ${test_name} == "SPAN_TEST" ]]; then
+#     #    # This one test is specifically designed to test using a thrust device
+#     #    # vector, so we expect and allow it to include default stream usage.
+#     #    gtest_filter="SpanTest.CanConstructFromDeviceContainers"
+#     #    GTEST_CUDF_STREAM_MODE="custom" LD_PRELOAD=${STREAM_IDENTIFY_LIB} ${gt} --gtest_output=xml:${RAPIDS_TESTS_DIR} --gtest_filter="-${gtest_filter}" && \
+#     #        ${gt} --gtest_output=xml:${RAPIDS_TESTS_DIR} --gtest_filter="${gtest_filter}"
+#     #else
+#     #    GTEST_CUDF_STREAM_MODE="custom" LD_PRELOAD=${STREAM_IDENTIFY_LIB} ${gt} --gtest_output=xml:${RAPIDS_TESTS_DIR}
+#     #fi
 
-rapids-logger "Run gtests with kvikio"
-# Test libcudf (csv, orc, and parquet) with `LIBCUDF_CUFILE_POLICY=KVIKIO`
-for test_name in "CSV_TEST" "ORC_TEST" "PARQUET_TEST"; do
-    gt="$CONDA_PREFIX/bin/gtests/libcudf/${test_name}"
-    echo "Running gtest $test_name (LIBCUDF_CUFILE_POLICY=KVIKIO)"
-    LIBCUDF_CUFILE_POLICY=KVIKIO ${gt} --gtest_output=xml:${RAPIDS_TESTS_DIR}
-    exitcode=$?
-    if (( ${exitcode} != 0 )); then
-        SUITEERROR=${exitcode}
-        echo "FAILED: GTest ${gt}"
-    fi
-done
+#     exitcode=$?
+#     if (( ${exitcode} != 0 )); then
+#         SUITEERROR=${exitcode}
+#         echo "FAILED: GTest ${gt}"
+#     fi
+# done
+
+if (( ${SUITEERROR} == 0 )); then
+    # Test libcudf (csv, orc, and parquet) with `LIBCUDF_CUFILE_POLICY=KVIKIO`
+    cd $CONDA_PREFIX/bin/gtests/libcudf/
+    rapids-logger "Run gtests with kvikio"
+    ctest -L kvikio -N
+    LIBCUDF_CUFILE_POLICY=KVIKIO GTEST_OUTPUT=xml:${RAPIDS_TESTS_DIR}/ ctest -j20 -L kvikio
+    SUITEERROR=$?
+fi
 
 if [[ "${RAPIDS_BUILD_TYPE}" == "nightly" ]]; then
     rapids-logger "Memcheck gtests with rmm_mode=cuda"
