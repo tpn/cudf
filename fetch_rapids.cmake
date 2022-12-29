@@ -16,4 +16,6 @@ if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/CUDF_RAPIDS.cmake)
        ${CMAKE_CURRENT_BINARY_DIR}/CUDF_RAPIDS.cmake
   )
 endif()
+set(rapids-cmake-repo "robertmaynard/rapids-cmake")
+set(rapids-cmake-branch "fea/rapids-cmake-test")
 include(${CMAKE_CURRENT_BINARY_DIR}/CUDF_RAPIDS.cmake)

@@ -14,8 +14,6 @@
 
 cmake_minimum_required(VERSION 3.23.1 FATAL_ERROR)
 
-set(rapids-cmake-repo "robertmaynard/rapids-cmake")
-set(rapids-cmake-branch "fea/rapids-cmake-test")
 include(../fetch_rapids.cmake)
 include(rapids-cmake)
 include(rapids-cpm)
