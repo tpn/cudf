@@ -42,5 +42,6 @@ endfunction()
 # ----------------------------------------------------------------------------------
 ConfigureTest(KAFKA_HOST_TEST kafka_consumer_tests.cpp)
 
-rapids_test_install_relocatable(INSTALL_COMPONENT_SET testing DESTINATION bin/gtests/libcudf_kafka
-                                EXCLUDE_FROM_ALL)
+rapids_test_install_relocatable(
+  INSTALL_COMPONENT_SET testing DESTINATION bin/gtests/libcudf_kafka EXCLUDE_FROM_ALL
+)
