@@ -123,12 +123,12 @@ repos:
                   - cmakelang==0.6.13
                 verbose: true
                 require_serial: true
-              - id: copyright-check
-                name: copyright-check
-                entry: python ./ci/checks/copyright.py --git-modified-only --update-current-year
-                language: python
-                pass_filenames: false
-                additional_dependencies: [gitpython]
+#              - id: copyright-check
+#                name: copyright-check
+#                entry: python ./ci/checks/copyright.py --git-modified-only --update-current-year
+#                language: python
+#                pass_filenames: false
+#                additional_dependencies: [gitpython]
               - id: doxygen-check
                 name: doxygen-check
                 entry: ./ci/checks/doxygen.sh

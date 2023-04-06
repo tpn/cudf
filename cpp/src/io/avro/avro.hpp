@@ -59,18 +59,44 @@ struct column_desc {
 
 /**
  * @brief AVRO file metadata struct
+ *
+ * `metadata_size` is the size in bytes of the avro file header.
+ *
+ * `total_data_size` is the size of all data minus `metadata_size`.
+ *
+ * `num_rows` is the number of rows that will be processed.  If the user has not
+ * requested the number of rows to be limited (i.e. via the `num_rows` param to
+ * `read_avro()`), this number will represent all rows in the file *after* the
+ * `skip_rows` parameter has been taken into consideration (assuming a request
+ * has been made to also skip rows).
+ *
+ * `total_num_rows` is the total number of rows present in the file, across all
+ * blocks.  This may be more than `num_rows` if the user has requested a limit
+ * on the number of rows to return, or if `skip_rows` is active.
+ *
+ * `skip_rows` is the number of rows the user has requested to skip.  Note that
+ * this value may differ from the `block_desc_s.first_row` member, which will
+ * capture the number of rows to skip for a given block.
+ *
+ * `block_list` is a list of all blocks that contain the selected rows.  If no
+ * row filtering has been done via `num_rows` or `skip_rows`; it will contain
+ * all blocks.  Otherwise, it will contain only blocks selected by those
+ * constraints.
  */
 struct file_metadata {
   std::map<std::string, std::string> user_data;
-  std::string codec       = "";
-  uint64_t sync_marker[2] = {0, 0};
-  size_t metadata_size    = 0;
-  size_t total_data_size  = 0;
-  size_t num_rows         = 0;
-  uint32_t skip_rows      = 0;
-  uint32_t max_block_size = 0;
+  std::string codec         = "";
+  uint64_t sync_marker[2]   = {0, 0};
+  size_t metadata_size      = 0;
+  size_t total_data_size    = 0;
+  size_t selected_data_size = 0;
+  size_type num_rows        = 0;
+  size_type skip_rows       = 0;
+  size_type total_num_rows  = 0;
+  uint32_t max_block_size   = 0;
   std::vector<schema_entry> schema;
   std::vector<block_desc_s> block_list;
+  std::vector<block_desc_s> all_block_list;
   std::vector<column_desc> columns;
 };
 
@@ -100,11 +126,12 @@ class schema_parser {
  */
 class container {
  public:
-  container(uint8_t const* base, size_t len) noexcept : m_base{base}, m_cur{base}, m_end{base + len}
+  container(uint8_t const* base, size_t len) noexcept
+    : m_base{base}, m_start{base}, m_cur{base}, m_end{base + len}
   {
   }
 
-  [[nodiscard]] auto bytecount() const { return m_cur - m_base; }
+  [[nodiscard]] auto bytecount() const { return m_cur - m_start; }
 
   template <typename T>
   T get_raw()
@@ -124,6 +151,7 @@ class container {
 
  protected:
   const uint8_t* m_base;
+  const uint8_t* m_start;
   const uint8_t* m_cur;
   const uint8_t* m_end;
 };

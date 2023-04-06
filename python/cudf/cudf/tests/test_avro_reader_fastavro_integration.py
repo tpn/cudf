@@ -18,6 +18,8 @@ import pathlib
 from typing import Optional
 
 import fastavro
+import numpy as np
+import pandas as pd
 import pytest
 
 import cudf
@@ -444,3 +446,199 @@ def test_alltypes_plain_avro():
     expected["int_col"] = expected["int_col"].astype("int32")
 
     assert_eq(actual, expected)
+
+
+# The following values are used to test various boundary conditions associated
+# with multiblock avro files.
+total_rows_and_num_rows_and_skip_rows_and_rows_per_block = [
+    (10, 10, 9, 9),
+    (10, 10, 9, 5),
+    (10, 10, 9, 3),
+    (10, 10, 9, 2),
+    (10, 10, 9, 10),
+    (10, 10, 8, 2),
+    (10, 10, 5, 5),
+    (10, 10, 2, 9),
+    (10, 10, 2, 2),
+    (10, 10, 1, 9),
+    (10, 10, 1, 5),
+    (10, 10, 1, 2),
+    (10, 10, 1, 10),
+    (10, 10, 10, 9),
+    (10, 10, 10, 5),
+    (10, 10, 10, 2),
+    (10, 10, 10, 10),
+    (10, 10, 0, 9),
+    (10, 10, 0, 5),
+    (10, 10, 0, 2),
+    (10, 10, 0, 10),
+    (100, 100, 99, 10),
+    (100, 100, 90, 90),
+    (100, 100, 90, 90),
+    (100, 100, 90, 89),
+    (100, 100, 90, 88),
+    (100, 100, 90, 87),
+    (100, 100, 90, 5),
+    (100, 100, 89, 90),
+    (100, 100, 87, 90),
+    (100, 100, 50, 7),
+    (100, 100, 50, 31),
+    (10, 1, 8, 9),
+    (100, 1, 99, 10),
+    (100, 1, 98, 10),
+    (100, 1, 97, 10),
+    (100, 3, 90, 87),
+    (100, 4, 90, 5),
+    (100, 2, 89, 90),
+    (100, 9, 87, 90),
+    (100, 20, 50, 7),
+    (100, 10, 50, 31),
+    (100, 20, 50, 31),
+    (100, 30, 50, 31),
+    (256, 256, 0, 256),
+    (256, 256, 0, 256),
+    (256, 256, 0, 256),
+    (256, 256, 0, 32),
+    (256, 256, 0, 31),
+    (256, 256, 0, 33),
+    (256, 256, 31, 32),
+    (256, 256, 32, 31),
+    (256, 256, 31, 33),
+    (512, 512, 0, 32),
+    (512, 512, 0, 31),
+    (512, 512, 0, 33),
+    (512, 512, 31, 32),
+    (512, 512, 32, 31),
+    (512, 512, 31, 33),
+    (1024, 1024, 0, 32),
+    (1024, 1024, 0, 31),
+    (1024, 1024, 0, 33),
+    (1024, 1024, 31, 32),
+    (1024, 1024, 32, 31),
+    (1024, 1024, 31, 33),
+    (16384, 16384, 0, 1),
+    (16384, 16384, 0, 31),
+    (16384, 16384, 0, 32),
+    (16384, 16384, 0, 33),
+    (16384, 16384, 0, 16384),
+]
+
+total_rows_and_num_rows_and_skip_rows_and_rows_per_block_ids = [
+    f"total_rows={total_rows}-"
+    + (f"num_rows={num_rows}-" if num_rows != total_rows else "")
+    + f"skip_rows={skip_rows}-"
+    f"sync_interval={sync_interval}-"
+    for (
+        total_rows,
+        num_rows,
+        skip_rows,
+        sync_interval,
+    ) in total_rows_and_num_rows_and_skip_rows_and_rows_per_block
+]
+
+
+# N.B. The float32 and float64 types are chosen specifically to exercise
+#      the only path in the avro reader GPU code that can process multiple
+#      rows in parallel (via warp-level parallelism).  See the logic around
+#      the line `if (cur + min_row_size * rows_remaining == end)` in
+#      gpuDecodeAvroColumnData().
+@pytest.mark.parametrize("dtype", ["str", "float32", "float64"])
+@pytest.mark.parametrize(
+    "use_sync_interval",
+    [True, False],
+    ids=["use_sync_interval", "ignore_sync_interval"],
+)
+@pytest.mark.parametrize("codec", ["null", "deflate", "snappy"])
+@pytest.mark.parametrize(
+    "total_rows_and_num_rows_and_skip_rows_and_rows_per_block",
+    total_rows_and_num_rows_and_skip_rows_and_rows_per_block,
+    ids=total_rows_and_num_rows_and_skip_rows_and_rows_per_block_ids,
+)
+def test_avro_reader_multiblock(
+    dtype,
+    codec,
+    use_sync_interval,
+    total_rows_and_num_rows_and_skip_rows_and_rows_per_block,
+):
+    (
+        total_rows,
+        num_rows,
+        skip_rows,
+        rows_per_block,
+    ) = total_rows_and_num_rows_and_skip_rows_and_rows_per_block
+
+    assert total_rows >= num_rows
+    limit_rows = not (num_rows == total_rows)
+
+    if limit_rows:
+        assert total_rows >= num_rows + skip_rows
+
+    assert rows_per_block <= total_rows
+
+    if dtype == "str":
+        avro_type = "string"
+
+        # Generate a list of strings, each of which is a 6-digit number, padded
+        # with leading zeros.  This data set was very useful during development
+        # of the multiblock avro reader logic, as you get implicit feedback as
+        # to what may have gone wrong when the test fails, based on the
+        # expected vs actual values.
+        values = [f"{i:0>6}" for i in range(0, total_rows)]
+
+        # The sync_interval is the number of bytes between sync blocks.
+        # Because we're using fixed length strings (6 bytes per string, plus 2
+        # bytes for the zigzag-encoded length prefix), we can calculate the
+        # total number of bytes per block by multiplying the desired number of
+        # rows per block by the bytes per row.  This yields our sync_interval.
+        bytes_per_row = len(values[0]) + 2
+
+    else:
+        assert dtype in ("float32", "float64")
+        bytes_per_row = 4 if dtype == "float32" else 8
+        avro_type = "float" if dtype == "float32" else "double"
+
+        # We don't use rand_dataframe() here, because it increases the
+        # execution time of each test by a factor of 10 or more (it appears
+        # to use a very costly approach to generating random data).
+        values = np.random.rand(total_rows).astype(dtype)
+
+    total_bytes_per_block = rows_per_block * bytes_per_row
+    sync_interval = total_bytes_per_block
+
+    source_df = cudf.DataFrame({"0": pd.Series(values)})
+
+    if limit_rows:
+        expected_df = source_df[skip_rows : skip_rows + num_rows].reset_index(
+            drop=True
+        )
+    else:
+        expected_df = source_df[skip_rows:].reset_index(drop=True)
+
+    records = source_df.to_pandas().to_dict(orient="records")
+
+    schema = {
+        "name": "root",
+        "type": "record",
+        "fields": [
+            {"name": "0", "type": avro_type},
+        ],
+    }
+
+    if use_sync_interval:
+        kwds = {"sync_interval": sync_interval}
+    else:
+        kwds = {}
+
+    kwds["codec"] = codec
+
+    buffer = io.BytesIO()
+    fastavro.writer(buffer, schema, records, **kwds)
+    buffer.seek(0)
+
+    if not limit_rows:
+        # Explicitly set num_rows to None if we want to read all rows, to
+        # ensure the logic responsible for handling this gets exercised.
+        num_rows = None
+    actual_df = cudf.read_avro(buffer, skiprows=skip_rows, num_rows=num_rows)
+
+    assert_eq(expected_df, actual_df)

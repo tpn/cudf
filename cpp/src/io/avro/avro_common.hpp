@@ -26,16 +26,19 @@ namespace io {
 namespace avro {
 struct block_desc_s {
   block_desc_s() {}
-  explicit constexpr block_desc_s(size_t offset_,
-                                  uint32_t size_,
-                                  uint32_t first_row_,
-                                  uint32_t num_rows_)
-    : offset(offset_), size(size_), first_row(first_row_), num_rows(num_rows_)
+  explicit constexpr block_desc_s(
+    size_t offset_, uint32_t size_, uint32_t row_offset_, uint32_t first_row_, uint32_t num_rows_)
+    : offset(offset_),
+      size(size_),
+      row_offset(row_offset_),
+      first_row(first_row_),
+      num_rows(num_rows_)
   {
   }
 
   size_t offset;
   uint32_t size;
+  uint32_t row_offset;
   uint32_t first_row;
   uint32_t num_rows;
 };
